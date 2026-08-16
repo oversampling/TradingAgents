@@ -108,6 +108,9 @@ Create a virtual environment in any of your favorite environment managers:
 ```bash
 conda create -n tradingagents python=3.12
 conda activate tradingagents
+
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 Install the package and its dependencies:
@@ -147,6 +150,18 @@ export MINIMAX_CN_API_KEY=...      # MiniMax — China (api.minimaxi.com)
 export OPENROUTER_API_KEY=...      # OpenRouter
 export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 ```
+
+For official SEC quarterly-filing analysis, identify the automated client in
+`.env` (SEC EDGAR requires contact information but no API key):
+
+```bash
+SEC_USER_AGENT="Your Name your-email@example.com"
+```
+
+When configured, the Fundamentals Analyst retrieves the latest 10-Q/10-Q/A
+filed on or before the selected analysis date, plus the preceding distinct
+quarter for comparison. Raw filing HTML is cached under
+`~/.tradingagents/cache/sec_filings/`.
 
 For Azure OpenAI, copy `.env.enterprise.example` to `.env.enterprise` and fill in your credentials.
 
@@ -251,8 +266,8 @@ Checkpoint resume is opt-in via `--checkpoint`. When enabled, LangGraph saves st
 Per-ticker SQLite databases live at `~/.tradingagents/cache/checkpoints/<TICKER>.db` (override the base with `TRADINGAGENTS_CACHE_DIR`). Use `--clear-checkpoints` to reset all of them before a run.
 
 ```bash
-tradingagents analyze --checkpoint           # enable for this run
-tradingagents analyze --clear-checkpoints    # reset before running
+tradingagents --checkpoint           # enable for this run
+tradingagents --clear-checkpoints    # reset before running
 ```
 
 ```python

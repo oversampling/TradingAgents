@@ -3,6 +3,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.sec_edgar import get_quarterly_filing as get_sec_quarterly_filing
 
 
 @tool
@@ -77,3 +78,16 @@ def get_income_statement(
         str: A formatted report containing income statement data
     """
     return route_to_vendor("get_income_statement", ticker, freq, curr_date)
+
+
+@tool
+def get_quarterly_filing(
+    ticker: Annotated[str, "US-listed company ticker symbol"],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+) -> str:
+    """Retrieve the latest official SEC 10-Q available by the analysis date.
+
+    Includes the preceding distinct fiscal quarter for comparison. The result
+    contains filing metadata, official SEC links, and cleaned filing text.
+    """
+    return get_sec_quarterly_filing(ticker, curr_date)

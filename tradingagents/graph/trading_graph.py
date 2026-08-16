@@ -24,6 +24,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_macro_indicators,
     get_news,
     get_prediction_markets,
+    get_quarterly_filing,
     get_stock_data,
     get_verified_market_snapshot,
     resolve_instrument_identity,
@@ -245,6 +246,7 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                    get_quarterly_filing,
                 ]
             ),
         }
