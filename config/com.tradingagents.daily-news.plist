@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.tradingagents.daily-news</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/jinyee/Library/Application Support/TradingAgentsDaily/.venv/bin/tradingagents-daily</string>
+    <string>--env-file</string><string>/Users/jinyee/Library/Application Support/TradingAgentsDaily/.env</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/jinyee/Library/Application Support/TradingAgentsDaily/app</string>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/Users/jinyee/Library/Application Support/TradingAgentsDaily/logs/daily-news.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/jinyee/Library/Application Support/TradingAgentsDaily/logs/daily-news.err.log</string>
+  <key>ProcessType</key><string>Background</string><key>RunAtLoad</key><false/>
+</dict></plist>

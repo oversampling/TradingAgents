@@ -86,6 +86,7 @@ class TradingAgentsGraph:
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
+        execution_mode: str = "full",
     ):
         """Initialize the trading agents graph and components.
 
@@ -94,10 +95,15 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            execution_mode: ``full`` (the default trading workflow) or
+                ``analysts_only`` (end after the selected analysts).
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        if execution_mode not in {"full", "analysts_only"}:
+            raise ValueError("execution_mode must be 'full' or 'analysts_only'")
+        self.execution_mode = execution_mode
 
         # Update the interface's config
         set_config(self.config)
@@ -161,7 +167,9 @@ class TradingAgentsGraph:
         self.selected_analysts = tuple(selected_analysts)
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        self.workflow = self.graph_setup.setup_graph(
+            selected_analysts, analysts_only=execution_mode == "analysts_only"
+        )
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
         self._resuming = False
@@ -401,6 +409,7 @@ class TradingAgentsGraph:
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
+            f"mode={getattr(self, 'execution_mode', 'full')}",
         ])
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock"):
@@ -508,9 +517,66 @@ class TradingAgentsGraph:
             )
         return write_report_tree(final_state, ticker, save_path)
 
-    def _run_graph(self, company_name, trade_date, asset_type: str = "stock",
-                   checkpoint_thread_id: str | None = None):
+    def propagate_reports(self, company_name, trade_date, asset_type: str = "stock"):
+        """Run an analyst-only graph and return its state.
+
+        Unlike :meth:`propagate`, this deliberately does not resolve or write
+        trading memory, create a trading signal, or expect a final decision.
+        It is intended for scheduled research jobs such as the daily briefing.
+        """
+        if self.execution_mode != "analysts_only":
+            raise RuntimeError(
+                "propagate_reports requires execution_mode='analysts_only'"
+            )
+        self.ticker = company_name
+        with self.checkpoint_scope(company_name, trade_date, asset_type) as checkpoint_thread_id:
+            final_state = self._invoke_graph(
+                company_name,
+                trade_date,
+                asset_type=asset_type,
+                checkpoint_thread_id=checkpoint_thread_id,
+            )
+            self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
+            return final_state
+
+    def _run_graph(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        checkpoint_thread_id: str | None = None,
+    ):
         """Execute the graph and write the resulting state to disk and memory log."""
+        final_state = self._invoke_graph(
+            company_name,
+            trade_date,
+            asset_type=asset_type,
+            checkpoint_thread_id=checkpoint_thread_id,
+        )
+
+        # Log state to disk.
+        self._log_state(trade_date, final_state)
+
+        # Store decision for deferred reflection on the next same-ticker run.
+        self.memory_log.store_decision(
+            ticker=company_name,
+            trade_date=trade_date,
+            final_trade_decision=final_state["final_trade_decision"],
+        )
+
+        # Clear checkpoint on successful completion to avoid stale state.
+        self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
+
+        return final_state, self.process_signal(final_state["final_trade_decision"])
+
+    def _invoke_graph(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        checkpoint_thread_id: str | None = None,
+    ):
+        """Invoke the compiled graph without making trading-workflow assumptions."""
         # Initialize state — inject memory log context for PM and the
         # deterministically resolved instrument identity for all agents. On a
         # historical run, gate lessons to those whose outcome was known by the
@@ -560,20 +626,7 @@ class TradingAgentsGraph:
         # Store current state for reflection.
         self.curr_state = final_state
 
-        # Log state to disk.
-        self._log_state(trade_date, final_state)
-
-        # Store decision for deferred reflection on the next same-ticker run.
-        self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
-
-        # Clear checkpoint on successful completion to avoid stale state.
-        self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
-
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
