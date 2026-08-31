@@ -529,15 +529,7 @@ class TradingAgentsGraph:
                 "propagate_reports requires execution_mode='analysts_only'"
             )
         self.ticker = company_name
-        with self.checkpoint_scope(company_name, trade_date, asset_type) as checkpoint_thread_id:
-            final_state = self._invoke_graph(
-                company_name,
-                trade_date,
-                asset_type=asset_type,
-                checkpoint_thread_id=checkpoint_thread_id,
-            )
-            self.clear_checkpoint_on_success(company_name, trade_date, asset_type)
-            return final_state
+        return self._invoke_graph(company_name, trade_date, asset_type=asset_type)
 
     def _run_graph(
         self,
@@ -547,12 +539,44 @@ class TradingAgentsGraph:
         checkpoint_thread_id: str | None = None,
     ):
         """Execute the graph and write the resulting state to disk and memory log."""
-        final_state = self._invoke_graph(
+        # Keep this path self-contained: the CLI and external integrations have
+        # historically bound _run_graph directly when exercising full trading
+        # behavior. Analyst-only reporting uses _invoke_graph below instead.
+        past_context = self.memory_log.get_past_context(
+            company_name, as_of=self._memory_as_of(trade_date)
+        )
+        instrument_context = self.resolve_instrument_context(company_name, asset_type)
+        init_agent_state = self.propagator.create_initial_state(
             company_name,
             trade_date,
             asset_type=asset_type,
-            checkpoint_thread_id=checkpoint_thread_id,
+            past_context=past_context,
+            instrument_context=instrument_context,
         )
+        args = self.propagator.get_graph_args()
+        if checkpoint_thread_id is not None:
+            args.setdefault("config", {}).setdefault("configurable", {})[
+                "thread_id"
+            ] = checkpoint_thread_id
+        graph_input = self.checkpoint_input(init_agent_state)
+
+        if self.debug:
+            trace = []
+            last_printed = None
+            for chunk in self.graph.stream(graph_input, **args):
+                if chunk["messages"]:
+                    msg = chunk["messages"][-1]
+                    signature = (type(msg).__name__, getattr(msg, "content", None))
+                    if signature != last_printed:
+                        msg.pretty_print()
+                        last_printed = signature
+                    trace.append(chunk)
+            final_state = {}
+            for chunk in trace:
+                final_state.update(chunk)
+        else:
+            final_state = self.graph.invoke(graph_input, **args)
+        self.curr_state = final_state
 
         # Log state to disk.
         self._log_state(trade_date, final_state)

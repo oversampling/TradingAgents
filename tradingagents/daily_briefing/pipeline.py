@@ -15,7 +15,7 @@ from .mailer import MailDeliveryError, send_html_report
 from .market_calendar import latest_completed_session
 from .models import SymbolResult
 from .providers.moomoo import MoomooReadOnlyProvider
-from .reporting import render_html, write_artifacts
+from .reporting import render_html, summarize_broker_pnl, write_artifacts
 from .storage import DailyStore
 from .symbol_mapper import merge_securities
 
@@ -98,10 +98,21 @@ class DailyBriefingPipeline:
     def _execute(self, store, run_id, now, sessions, fresh_markets, send_email):
         results: list[SymbolResult] = []
         skipped: list[str] = []
+        pnl_summary = None
         try:
             watchlist = self.provider.watchlist(self.settings.watchlist_group)
-            positions = self.provider.positions() if self.settings.include_positions else []
-            symbols, skipped = merge_securities(watchlist, positions, self.settings.max_symbols)
+            try:
+                pnl_positions = self.provider.position_pnl()
+                pnl_summary = summarize_broker_pnl(pnl_positions, now.isoformat())
+                positions = [item.security for item in pnl_positions] if self.settings.include_positions else []
+            except Exception as exc:
+                # P&L is useful context but must not suppress the news briefing.
+                positions = []
+                skipped.append(f"Broker P&L snapshot unavailable: {type(exc).__name__}: {exc}")
+            symbols, mapping_skipped = merge_securities(
+                watchlist, positions, self.settings.max_symbols
+            )
+            skipped.extend(mapping_skipped)
             symbols = [item for item in symbols if item.market in fresh_markets]
             graph = self._graph()
             for symbol in symbols:
@@ -121,7 +132,9 @@ class DailyBriefingPipeline:
                 store.add_result(run_id, result)
             if not results:
                 skipped.append("No supported securities were available for the newly completed sessions.")
-            html_path, json_path, html = write_artifacts(self.settings.runtime_dir, now, sessions, results, skipped)
+            html_path, json_path, html = write_artifacts(
+                self.settings.runtime_dir, now, sessions, results, skipped, pnl_summary
+            )
             successes = sum(item.status == "success" for item in results)
             status = "completed" if successes == len(results) else "partial"
             if not successes and results and not self.settings.send_partial_reports:
@@ -140,7 +153,10 @@ class DailyBriefingPipeline:
             if send_email and self.settings.alert_on_full_failure:
                 try:
                     self.settings.validate_email()
-                    body = render_html(now.isoformat(), sessions, results, skipped + [f"Operational failure: {type(exc).__name__}: {exc}"])
+                    body = render_html(
+                        now.isoformat(), sessions, results,
+                        skipped + [f"Operational failure: {type(exc).__name__}: {exc}"], pnl_summary,
+                    )
                     send_html_report(self.settings.gmail_address, self.settings.recipient, self.settings.gmail_app_password, f"TradingAgents Daily Briefing FAILED — {now.date().isoformat()}", body)
                 except Exception:
                     pass

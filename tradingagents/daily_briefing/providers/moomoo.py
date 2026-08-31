@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 from importlib import import_module
 
-from ..models import MoomooSecurity
+from ..models import BrokerPnlPosition, MoomooSecurity
 
 
 class MoomooError(RuntimeError):
@@ -94,20 +94,46 @@ class MoomooReadOnlyProvider:
             raise MoomooError("No active real normal Moomoo account is available to both US and MY")
         raise MoomooError("Multiple eligible accounts found; set MOOMOO_ACCOUNT_ID")
 
-    def positions(self) -> list[MoomooSecurity]:
-        """Return positive US/MY positions only; no trade/unlock APIs are used."""
+    @staticmethod
+    def _number(value) -> float | None:
+        try:
+            return float(value) if value is not None and value != "" else None
+        except (TypeError, ValueError):
+            return None
+
+    def position_pnl(self) -> list[BrokerPnlPosition]:
+        """Return positive positions with Moomoo's current P&L fields."""
         account_id = self.select_account_id()
-        output: list[MoomooSecurity] = []
+        output: list[BrokerPnlPosition] = []
         for market in ("US", "MY"):
             with self._trade_context(market) as context:
                 data = self._success(
                     context.position_list_query(
-                        acc_id=account_id, position_market=getattr(self.sdk.TrdMarket, market)
+                        acc_id=account_id,
+                        position_market=getattr(self.sdk.TrdMarket, market),
+                        refresh_cache=True,
                     ),
                     "get positions",
                 )
             records = data.to_dict("records") if hasattr(data, "to_dict") else data
             for row in records:
                 if float(row.get("qty", 0) or 0) > 0 and row.get("code"):
-                    output.append(MoomooSecurity(str(row["code"]), str(row.get("stock_name", ""))))
+                    output.append(
+                        BrokerPnlPosition(
+                            security=MoomooSecurity(
+                                str(row["code"]), str(row.get("stock_name", row.get("name", "")))
+                            ),
+                            market=market,
+                            quantity=float(row["qty"]),
+                            currency=str(row.get("currency", "") or "Unknown"),
+                            market_value=self._number(row.get("market_val")),
+                            unrealized_pnl=self._number(row.get("unrealized_pl")),
+                            realized_pnl=self._number(row.get("realized_pl")),
+                            pnl_ratio=self._number(row.get("pl_ratio")),
+                        )
+                    )
         return output
+
+    def positions(self) -> list[MoomooSecurity]:
+        """Compatibility view for the Phase 1 monitored-symbol universe."""
+        return [item.security for item in self.position_pnl()]

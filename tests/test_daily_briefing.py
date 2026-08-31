@@ -3,8 +3,12 @@ from datetime import datetime
 import pytest
 
 from tradingagents.daily_briefing.config import DailySettings
-from tradingagents.daily_briefing.models import MoomooSecurity, SymbolResult
-from tradingagents.daily_briefing.reporting import render_html, write_artifacts
+from tradingagents.daily_briefing.models import BrokerPnlPosition, MoomooSecurity, SymbolResult
+from tradingagents.daily_briefing.reporting import (
+    render_html,
+    summarize_broker_pnl,
+    write_artifacts,
+)
 from tradingagents.daily_briefing.storage import DailyStore
 from tradingagents.daily_briefing.symbol_mapper import merge_securities
 from tradingagents.graph.conditional_logic import ConditionalLogic
@@ -49,6 +53,21 @@ def test_reports_escape_untrusted_content_and_write_artifacts(tmp_path):
     assert "&lt;script&gt;" in html
     html_path, json_path, _ = write_artifacts(tmp_path, datetime(2026, 8, 17), {}, [result], [])
     assert html_path.exists() and json_path.exists()
+
+
+def test_pnl_summary_is_currency_separated_and_rendered_at_the_top():
+    summary = summarize_broker_pnl(
+        [
+            BrokerPnlPosition(MoomooSecurity("US.AAPL"), "US", 1, "USD", 200, 20, 5, 10),
+            BrokerPnlPosition(MoomooSecurity("MY.1155"), "MY", 1, "MYR", 100, -3, None, -3),
+        ],
+        "2026-08-17T08:00:00+08:00",
+    )
+    rendered = render_html("now", {"US": None, "MY": None}, [], [], summary)
+    assert "Broker P&amp;L snapshot" in rendered
+    assert "USD: unrealized <b>20.00</b>" in rendered
+    assert "MYR: unrealized <b>-3.00</b>" in rendered
+    assert "Moomoo-reported realized" in rendered
 
 
 def test_propagate_reports_skips_trading_memory_and_signal_processing(monkeypatch):

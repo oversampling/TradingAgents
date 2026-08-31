@@ -11,6 +11,33 @@ class MoomooSecurity:
 
 
 @dataclass(frozen=True)
+class BrokerPnlPosition:
+    """Read-only current-position P&L as returned by Moomoo OpenD."""
+
+    security: MoomooSecurity
+    market: str
+    quantity: float
+    currency: str
+    market_value: float | None
+    unrealized_pnl: float | None
+    realized_pnl: float | None
+    pnl_ratio: float | None
+
+
+@dataclass(frozen=True)
+class BrokerPnlSummary:
+    """Currency-separated snapshot suitable for a deterministic email header."""
+
+    retrieved_at: str
+    position_count: int
+    totals_by_currency: dict[str, dict[str, float]]
+    unavailable_fields: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class BriefingSymbol:
     moomoo_code: str
     ticker: str

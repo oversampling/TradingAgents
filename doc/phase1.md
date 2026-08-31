@@ -264,7 +264,10 @@ When `INCLUDE_PORTFOLIO_POSITIONS=true`:
 4. include positions with quantity greater than zero; and
 5. union them with the watchlist by canonical symbol.
 
-No position quantities, costs, or account values need to enter the LLM prompt or email in Phase 1. The position source is used only to ensure held securities are monitored. The report may show a boolean `Holding` badge.
+No position quantities, costs, or account values enter an LLM prompt. The email
+may show a `Holding` badge and a deterministic, currency-separated broker P&L
+summary at its top; raw account IDs, raw fills, and per-position quantities are
+not exposed there.
 
 ## 8. Symbol normalization
 
@@ -396,6 +399,8 @@ Generate one HTML email with:
 
 - generation timestamp and timezone;
 - covered market session dates;
+- broker P&L snapshot: Moomoo-reported unrealized and realized P&L for current
+  open positions, separated by currency;
 - successful, failed, and skipped counts;
 - data-source health summary;
 - explicit “research only, not financial advice” notice.
